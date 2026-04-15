@@ -7,14 +7,18 @@ import bcrypt
 import json
 import re #for regex
 import time #timestamps
-import secrets 
+import secrets
 import logging
 from datetime import datetime
 import os
+from classes import EncryptedStorage, SessionManager, SecurityLogger
 
 app = Flask(__name__)
 
 trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
+sessionManager = SessionManager()
+securityLogger = SecurityLogger()
+storage = EncryptedStorage()
 
 ## helper 
 def getUsers():
@@ -120,20 +124,22 @@ def login():
     user['locked_until'] = None
     saveUsers(users)
 
-    temp_token = secrets.token_urlsafe(32)
-    response = jsonify({'success': True, 'message': 'Logged in successfully'})
+    token = sessionManager.createSession(user['username'])
+    response = jsonify({'success': True, 'message': 'Successful login!'})
+    
     response.set_cookie(
         'session_token',
-        temp_token,
+        token,
         httponly=True,
-        secure=False,
+        secure=True,
         samesite='Strict',
         max_age=1800
     )
     return response
 
 def getCurrUser():  #stores current user id in global var g
-    if getattr(g, 'user_id', None) is None:
+    user_id = getattr(g, 'user_id', None)
+    if not user_id:
         return None
     users = getUsers()
     return users.get(g.user_id)
@@ -157,6 +163,21 @@ def requireRole(role):
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+@app.before_request
+def loadUserSession():
+    token = request.cookies.get('session_token')
+    if token:
+        sessionData = sessionManager.validateSession(token)
+        if sessionData:
+            g.user_id = sessionData['user_id']
+        else:
+            g.user_id = None
+    else:
+        g.user_id = None
+        
+
+
     
 
 

@@ -60,7 +60,7 @@ class SessionManager:
         }
         
         #save session
-        sessions = self.load_sessions()
+        sessions = self.loadSessions()
         sessions[token] = session
         self.saveSessions(sessions)
         return token

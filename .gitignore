@@ -1,4 +1,0 @@
-data/*.json
-data/*.key
-secret.key
-logs/*.log
