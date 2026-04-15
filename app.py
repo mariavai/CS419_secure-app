@@ -137,6 +137,16 @@ def login():
     )
     return response
 
+@app.route('/logout', methods=['POST'])
+def logout():
+    token = request.cookies.get('session_token')
+    if token:
+        sessionManager.destroySession(token)
+    response = jsonify({'success': True, 'message': 'Successful logout!'})
+    response.set_cookie('session_token', '', expires=0, httponly=True, samesite='Strict')
+    return response
+
+
 def getCurrUser():  #stores current user id in global var g
     user_id = getattr(g, 'user_id', None)
     if not user_id:
@@ -177,8 +187,13 @@ def loadUserSession():
         g.user_id = None
         
 
-
+@app.route('/upload', methods=['POST'])
+def upload():
     
+    
+@app.route('/download', methods=['POST'])
+def download():
+    pass
 
 
 @app.route('/')
