@@ -86,7 +86,7 @@ class SessionManager:
     
     def destroySession(self, token):
         """Delete session"""
-        sessions = self.load_sessions()
+        sessions = self.loadSessions()
         if token in sessions:
             del sessions[token]
             self.saveSessions(sessions)
