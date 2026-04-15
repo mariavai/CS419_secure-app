@@ -60,10 +60,15 @@ def register():
     confirm_password = data.get('confirm_password')
 
     if not validateUsername(username):
+        # logEvent() takes 4 args: (event_type, user_id, details, severity) || event_type: string label that describes what happened 
+        # user_id: None -> not logged in yet || details: a dict {}: field -> which input failed, reason -> why || severity: 'WARNING'
+        securityLogger.logEvent('INPUT_VALIDATION_FAILURE', None, {'field': 'username', 'reason': 'Invalid format'}, 'WARNING')
         return jsonify({'error': 'Invalid username'})
     if not validateEmail(email):
+        securityLogger.logEvent('INPUT_VALIDATION_FAILURE', None, {'field': 'email', 'reason': 'Invalid format'}, 'WARNING')
         return jsonify({'error': 'Invalid email'})
     if not validatePassword(password):
+        securityLogger.logEvent('INPUT_VALIDATION_FAILURE', None, {'field': 'password', 'reason': 'Does not meet requirements'}, 'WARNING')
         return jsonify({'error': 'Password does not meet requirements'})
     if password != confirm_password:
         return jsonify({'error': 'Passwords do not match'})
@@ -72,11 +77,14 @@ def register():
     
     #check for username dupes when creating new users
     if username in users:
+        securityLogger.logEvent('REGISTRATION_FAILED', None, {'reason': 'Username already taken', 'username': username}, 'WARNING')
         return jsonify({'error': 'Username already taken'})
+    
     
     #check for email dupes when creating new users
     for data in users.values():
         if data.get('email') == email:
+            securityLogger.logEvent('REGISTRATION_FAILED', None, {'reason': 'Email already registered'}, 'WARNING')
             return jsonify({'error': 'Email already registered'})
     
     salt = bcrypt.gensalt(rounds=12)
@@ -92,12 +100,18 @@ def register():
         "locked_until": None
         }
     saveUsers(users)
+
+    #user_id = username || no severity, default is info
+    securityLogger.logEvent('REGISTRATION_SUCCESS', username, {'username': username})
     return jsonify({'success': True})
 
 @app.route('/login', methods=['POST'])
 def login():
     loginIP = request.remote_addr
     if not rateLimitChecker(loginIP):
+
+        #loginIP stores IP to track later
+        securityLogger.logEvent('SUSPICIOUS_ACTIVITY', None, {'reason': 'Rate limit exceeded', 'ip': loginIP}, 'WARNING')
         return jsonify({'error': 'Too many login attempts made, please wait a bit before attempting to login again.'})
 
     data = request.get_json()
@@ -108,16 +122,21 @@ def login():
     user = users.get(username, None)
     #check if username exists in user data
     if not user:
+        #user_id = none, username doesn't exist
+        securityLogger.logEvent('LOGIN_FAILED', None, {'username': username, 'reason': 'User does not exist'}, 'WARNING')
         return jsonify({'error': 'User does not exist.'})
     #check if account has been locked
     if user.get('locked_until') and time.time() < user['locked_until']:
+        securityLogger.logEvent('LOGIN_FAILED', username, {'reason': 'Account is locked'}, 'WARNING')
         return jsonify({'error': 'Account locked due to too many failed attempts, please try again later.'})
     
     if not bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
         user['failed_attempts'] += 1
+        securityLogger.logEvent('LOGIN_FAILED', username, {'reason': 'Invalid password', 'failed_attempts': user['failed_attempts']}, 'WARNING')
         #lock user account until a specific time if this is their 5th failed attempt
         if user['failed_attempts'] >= 5:
             user['locked_until'] = time.time() + 900 
+            securityLogger.logEvent('ACCOUNT_LOCKED', username, {'reason': '5 failed login attempts'}, 'ERROR')
         saveUsers(users)
         return jsonify({'error': 'Invalid credentials'})
     user['failed_attempts'] = 0
@@ -125,6 +144,9 @@ def login():
     saveUsers(users)
 
     token = sessionManager.createSession(user['username'])
+    securityLogger.logEvent('SESSION_CREATED', username, {})
+    securityLogger.logEvent('LOGIN_SUCCESS', username, {'username': username})
+
     response = jsonify({'success': True, 'message': 'Successful login!'})
     
     response.set_cookie(
@@ -169,6 +191,8 @@ def requireRole(role):
             users = getUsers()
             user = users.get(g.user_id)
             if not user or user.get('role') != role:
+                #g.user_id = logged in user
+                securityLogger.logEvent('ACCESS_DENIED', g.user_id, {'required_role': role, 'reason': 'Insufficient privileges'}, 'WARNING')
                 return jsonify({'error': 'Permissions have not been granted.'})
             return f(*args, **kwargs)
         return decorated_function
@@ -183,6 +207,7 @@ def loadUserSession():
             g.user_id = sessionData['user_id']
         else:
             g.user_id = None
+            securityLogger.logEvent('SUSPICIOUS_ACTIVITY', None, {'reason': 'Invalid or expired session token'}, 'WARNING')
     else:
         g.user_id = None
         
