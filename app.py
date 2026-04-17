@@ -339,14 +339,176 @@ def loadUserSession():
         
 
 @app.route('/upload', methods=['POST'])
+@requireAuthentication
+@requireRole(ROLE_ADMIN, ROLE_USER)   # guests NOT allowed
+@requireDocumentPermission("docId", "editor")   # must be editor or owner
 def upload():
     pass
+
     
     
 @app.route('/download', methods=['POST'])
+@requireAuthentication
+@requireRole(ROLE_ADMIN, ROLE_USER, ROLE_GUEST)
+@requireDocumentPermission("docId", "viewer")
 def download():
     pass
 
+
+@app.route('/share', methods=['POST'])
+@requireAuthentication
+def shareDocument():
+    #allows owner + admin to share a doc
+    #adds users as either editor or viewer
+    user = getCurrUser()  # current logged-in user
+    data = request.get_json()
+
+    docId = data.get("docId")
+    targetUser = data.get("targetUser")
+    role = data.get("role")  # view or editor
+
+    
+    if role not in ["viewer", "editor"]:
+        return jsonify({"error": "Invalid role"}), 400
+
+    # load document metadata
+    docMeta = getDocument(docId)
+    if not docMeta:
+        return jsonify({"error": "Document not found"}), 404
+
+    # only owner or admin can share
+    if getCurrUserRole() != ROLE_ADMIN and not isOwner(user["username"], docMeta):
+        securityLogger.logEvent(
+            "ACCESS_DENIED",
+            user["username"],
+            {"resource": docId, "reason": "Only owner/admin can share"},
+            "WARNING"
+        )
+        return jsonify({"error": "You do not have permission to share this document."}), 403
+
+    # share
+    documentManager.shareDocument(docId, targetUser, role)
+
+    # log to document log
+    documentManager.logAction(docId, user["username"], f"SHARED_WITH_{targetUser}_{role.upper()}")
+
+    # log to security log
+    securityLogger.logEvent(
+        "DATA_ACCESS",
+        user["username"],
+        {"resource": docId, "action": "share", "targetUser": targetUser, "role": role}
+    )
+
+    return jsonify({"success": True, "message": f"Document shared with {targetUser} as {role}."})
+
+@app.route('/unshare', methods=['POST'])
+@requireAuthentication
+def unshareDocument():
+    #remove access to document
+    user = getCurrUser()
+    data = request.get_json()
+
+    docId = data.get("docId")
+    targetUser = data.get("targetUser")
+
+    # load document metadata
+    docMeta = getDocument(docId)
+    if not docMeta:
+        return jsonify({"error": "Document not found"}), 404
+
+    # only owner or admin can unshare
+    if getCurrUserRole() != ROLE_ADMIN and not isOwner(user["username"], docMeta):
+        securityLogger.logEvent(
+            "ACCESS_DENIED",
+            user["username"],
+            {"resource": docId, "reason": "Only owner/admin can unshare"},
+            "WARNING"
+        )
+        return jsonify({"error": "You do not have permission to unshare this document."}), 403
+
+    #unshare
+    success = documentManager.unshareDocument(docId, targetUser)
+    if not success:
+        return jsonify({"error": "User does not have access to this document."}), 400
+
+    #log to document log
+    documentManager.logAction(docId, user["username"], f"UNSHARED_{targetUser}")
+
+    #log to security log
+    securityLogger.logEvent(
+        "DATA_ACCESS",
+        user["username"],
+        {"resource": docId, "action": "unshare", "targetUser": targetUser}
+    )
+
+    return jsonify({"success": True, "message": f"{targetUser} no longer has access."})
+
+@app.route('/downgradeToGuest', methods=['POST'])
+@requireAuthentication
+@requireRole(ROLE_ADMIN)   #only admins
+def downgradeToGuest():
+    data = request.get_json()
+    username = data.get("username")
+
+    users = getUsers()
+
+    # check if user exists
+    if username not in users:
+        return jsonify({"error": "User not found"}), 404
+
+    # admin cannot downgrade themself
+    if username == g.user_id:
+        return jsonify({"error": "You cannot downgrade your own account."}), 400
+
+    # Update role
+    users[username]["role"] = ROLE_GUEST
+    saveUsers(users)
+
+    # Log event
+    securityLogger.logEvent(
+        "ROLE_DOWNGRADED",
+        g.user_id,
+        {"target": username, "new_role": ROLE_GUEST},
+        "WARNING"
+    )
+
+    return jsonify({"success": True, "message": f"{username} has been downgraded to guest."})
+
+@app.route('/upgradeRole', methods=['POST'])
+@requireAuthentication
+@requireRole(ROLE_ADMIN)   # ONLY admins
+def upgradeRole():
+    data = request.get_json()
+    username = data.get("username")
+    newRole = data.get("role")   #user or admin
+
+    users = getUsers()
+
+    # Check if user exists
+    if username not in users:
+        return jsonify({"error": "User not found"}), 404
+
+    # validate role
+    if newRole not in [ROLE_USER, ROLE_ADMIN]:
+        return jsonify({"error": "Invalid role"}), 400
+
+    # cannot change themself
+    if username == g.user_id and newRole != ROLE_ADMIN:
+        return jsonify({"error": "You cannot change your own role."}), 400
+
+    # update role
+    users[username]["role"] = newRole
+    saveUsers(users)
+
+    # Log event
+    securityLogger.logEvent(
+        "ROLE_UPGRADED",
+        g.user_id,
+        {"target": username, "new_role": newRole},
+        "INFO"
+    )
+
+    return jsonify({"success": True, "message": f"{username} has been upgraded to {newRole}."})
 
 @app.route('/')
 def home():
