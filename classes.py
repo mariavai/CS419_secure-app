@@ -6,6 +6,8 @@ from flask import request, has_request_context
 import secrets
 import time
 from cryptography.fernet import Fernet
+import hashlib
+
 
 class EncryptedStorage:
     def __init__(self, key_file='secret.key'):
@@ -32,6 +34,12 @@ class EncryptedStorage:
             encrypted = f.read()
         decrypted = self.cipher.decrypt(encrypted)
         return json.loads(decrypted.decode())
+    
+    def encryptDataBytes(self, data):
+        return self.cipher.encrypt(data)
+
+    def decryptDataBytes(self, data):
+        return self.cipher.decrypt(data) 
     
     
 
@@ -149,20 +157,23 @@ class SecurityLogger:
 
 
 class DocumentManager:
-    def __init__(self, metadataFile='data/documents.json', docsDir='data/user_documents'):
+    
+    def __init__(self, metadataFile='data/documents.json', USER_FOLDER_PATH = 'data/files/users', ADMIN_FOLDER_PATH = 'data/files/admin'):
         # path to metadata file
         self.metadataFile = metadataFile
+        self.USER_FOLDER_PATH = USER_FOLDER_PATH
+        self.ADMIN_FOLDER_PATH = ADMIN_FOLDER_PATH
+        self.FILE_PATH_PEPPER = "PEPPERsecure284920370472375"
 
-        # directory where encrypted files are stored
-        self.docsDir = docsDir
-
-        # ensure base data dir exists
+        # ensure all relevant data dirs exists
         if not os.path.exists('data'):
             os.makedirs('data')
-
-        # ensure encrypted document dir exists
-        if not os.path.exists(self.docsDir):
-            os.makedirs(self.docsDir)
+        if not os.path.exists('data/files'):
+            os.makedirs('data/files')
+        if not os.path.exists(self.USER_FOLDER_PATH):
+            os.makedirs(self.USER_FOLDER_PATH)
+        if not os.path.exists(self.ADMIN_FOLDER_PATH):
+            os.makedirs(self.ADMIN_FOLDER_PATH)
 
         # ensure metadata file exists
         if not os.path.exists(self.metadataFile):
@@ -178,6 +189,16 @@ class DocumentManager:
         #saves metadata back into json 
         with open(self.metadataFile, 'w') as f:
             json.dump(data, f, indent=4)
+            
+    def getSecureFilePath(self, docID, role):
+        #combining docID with pepper and hashing it so filePath is not guessable
+        filenameHash = hashlib.sha256((docID + self.FILE_PATH_PEPPER).encode()).hexdigest()
+        #set filePath depending on whether they are a user or admin
+        folderPath = self.USER_FOLDER_PATH
+        if role == 'admin':
+            folderPath = self.ADMIN_FOLDER_PATH
+        return os.path.join(folderPath, filenameHash)
+    
 
     def createDocumentEntry(self, docId, owner, fileName):
         #creates new document with default data
