@@ -146,3 +146,114 @@ class SecurityLogger:
             self.logger.warning(json.dumps(log_entry))
         else:
             self.logger.info(json.dumps(log_entry))
+
+
+class DocumentManager:
+    def __init__(self, metadataFile='data/documents.json', docsDir='data/user_documents'):
+        # path to metadata file
+        self.metadataFile = metadataFile
+
+        # directory where encrypted files are stored
+        self.docsDir = docsDir
+
+        # ensure base data dir exists
+        if not os.path.exists('data'):
+            os.makedirs('data')
+
+        # ensure encrypted document dir exists
+        if not os.path.exists(self.docsDir):
+            os.makedirs(self.docsDir)
+
+        # ensure metadata file exists
+        if not os.path.exists(self.metadataFile):
+            with open(self.metadataFile, 'w') as f:
+                json.dump({}, f)
+
+    def loadMetadata(self):
+        #loads documents from json to python
+        with open(self.metadataFile, 'r') as f:
+            return json.load(f)
+
+    def saveMetadata(self, data):
+        #saves metadata back into json 
+        with open(self.metadataFile, 'w') as f:
+            json.dump(data, f, indent=4)
+
+    def createDocumentEntry(self, docId, owner, fileName):
+        #creates new document with default data
+        metadata = self.loadMetadata()
+
+        metadata[docId] = {
+            "owner": owner,
+            "fileName": fileName,
+            "createdAt": time.time(),
+            "versions": [],
+            "sharedWith": {},
+            "auditLog": []
+        }
+
+        self.saveMetadata(metadata)
+
+    def addVersion(self, docId, versionPath, uploadedBy):
+        #new version encyrpted
+        metadata = self.loadMetadata()
+        doc = metadata.get(docId)
+
+        if not doc:
+            return False
+
+        versionNumber = len(doc["versions"]) + 1
+
+        doc["versions"].append({
+            "version": versionNumber,
+            "path": versionPath,
+            "timestamp": time.time(),
+            "uploadedBy": uploadedBy
+        })
+
+        self.saveMetadata(metadata)
+        return True
+
+    def shareDocument(self, docId, targetUser, role):
+        #share document and assign role: reader editor etc
+        metadata = self.loadMetadata()
+        doc = metadata.get(docId)
+
+        if not doc:
+            return False
+
+        doc["sharedWith"][targetUser] = role
+        self.saveMetadata(metadata)
+        return True
+
+    def unshareDocument(self, docId, targetUser):
+        #remove access to document
+        metadata = self.loadMetadata()
+        doc = metadata.get(docId)
+
+        if not doc:
+            return False
+
+        if targetUser in doc["sharedWith"]:
+            del doc["sharedWith"][targetUser]
+            self.saveMetadata(metadata)
+            return True
+
+        return False
+
+    def logAction(self, docId, user, action):
+        #audit log
+        metadata = self.loadMetadata()
+        doc = metadata.get(docId)
+
+        if not doc:
+            return False
+
+        doc["auditLog"].append({
+            "timestamp": time.time(),
+            "user": user,
+            "action": action
+        })
+
+        self.saveMetadata(metadata)
+        return True

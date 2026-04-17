@@ -164,6 +164,7 @@ def logout():
     token = request.cookies.get('session_token')
     if token:
         sessionManager.destroySession(token)
+        securityLogger.logEvent('SESSION_DESTROYED', g.user_id, {})
     response = jsonify({'success': True, 'message': 'Successful logout!'})
     response.set_cookie('session_token', '', expires=0, httponly=True, samesite='Strict')
     return response
@@ -214,6 +215,7 @@ def loadUserSession():
 
 @app.route('/upload', methods=['POST'])
 def upload():
+    pass
     
     
 @app.route('/download', methods=['POST'])
