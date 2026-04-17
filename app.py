@@ -11,7 +11,8 @@ import secrets
 import logging
 from datetime import datetime
 import os
-from classes import EncryptedStorage, SessionManager, SecurityLogger
+from classes import EncryptedStorage, SessionManager, SecurityLogger, DocumentManager
+
 
 app = Flask(__name__)
 
@@ -19,6 +20,11 @@ trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
 sessionManager = SessionManager()
 securityLogger = SecurityLogger()
 storage = EncryptedStorage()
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+ROLE_GUEST = "guest"
+
+documentManager = DocumentManager()
 
 ## helper 
 def getUsers():
@@ -176,6 +182,14 @@ def getCurrUser():  #stores current user id in global var g
         return None
     users = getUsers()
     return users.get(g.user_id)
+
+def getCurrUserRole():
+    #returns global role of user otherwise guest
+    user = getCurrUser()
+    if not user:
+        return ROLE_GUEST
+    return user.get("role", ROLE_USER)
+
     
 def requireAuthentication(f):
     @wraps(f)
@@ -185,18 +199,129 @@ def requireAuthentication(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def requireRole(role):
+def requireRole(*roles):
+  #restricts access depending on role
     def decorator(f):
         @wraps(f)
-        def decorated_function(*args, **kwargs):
-            users = getUsers()
-            user = users.get(g.user_id)
-            if not user or user.get('role') != role:
-                #g.user_id = logged in user
-                securityLogger.logEvent('ACCESS_DENIED', g.user_id, {'required_role': role, 'reason': 'Insufficient privileges'}, 'WARNING')
-                return jsonify({'error': 'Permissions have not been granted.'})
+        def wrapper(*args, **kwargs):
+            # get the current user object
+            user = getCurrUser()
+
+            # if no user is logged in no access
+            if not user:
+                securityLogger.logEvent(
+                    "ACCESS_DENIED",
+                    None,
+                    {"required_roles": roles, "reason": "Not authenticated"},
+                    "WARNING"
+                )
+                return jsonify({"error": "Please login."}), 401
+
+            #get global role
+            user_role = user.get("role")
+
+            # not in list deny access
+            if user_role not in roles:
+                securityLogger.logEvent(
+                    "ACCESS_DENIED",
+                    g.user_id,
+                    {"required_roles": roles, "user_role": user_role, "reason": "Insufficient privileges"},
+                    "WARNING"
+                )
+                return jsonify({"error": "Permissions have not been granted."}), 403
+
+            # Otherwise allow the request
             return f(*args, **kwargs)
-        return decorated_function
+        return wrapper
+    return decorator
+
+def getDocument(docId):
+    #gets document metadata otherwise nothing
+    metadata = documentManager.loadMetadata()
+    return metadata.get(docId)
+
+
+def getUserDocumentRole(user_id, docMeta):
+    #returns role for specific doc; owner, editor,view, none
+    if not docMeta:
+        return None
+
+    # owner always has full control
+    if docMeta.get("owner") == user_id:
+        return "owner"
+
+    # otherwise check sharedWith dictionary
+    return docMeta.get("sharedWith", {}).get(user_id)
+
+
+def isOwner(user_id, docMeta):
+    #checks if owner
+    return docMeta.get("owner") == user_id
+
+
+def isEditor(user_id, docMeta):
+    #checks if you can edit; owner or editor count
+    return getUserDocumentRole(user_id, docMeta) in ["editor", "owner"]
+
+
+def isViewer(user_id, docMeta):
+    #check if you view, editor, owner and viewer count
+    return getUserDocumentRole(user_id, docMeta) in ["viewer", "editor", "owner"]
+
+def requireDocumentPermission(docArgName, requiredRole):
+    #stops user from acessing a document thye shouldnt be able to 
+    
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+
+            # must be logged in
+            user = getCurrUser()
+            if not user:
+                return jsonify({"error": "Please login."}), 401
+
+            # get docId
+            data = request.get_json()
+            docId = data.get(docArgName)
+            docMeta = getDocument(docId)
+
+            # check if doc exists
+            if not docMeta:
+                return jsonify({"error": "Document not found"}), 404
+
+            # if admin don't check
+            if getCurrUserRole() == ROLE_ADMIN:
+                return f(*args, **kwargs)
+
+            user_id = user["username"]
+
+            #  if owner dont check
+            if isOwner(user_id, docMeta):
+                return f(*args, **kwargs)
+
+            # check for viewer permissions
+            if requiredRole == "viewer" and not isViewer(user_id, docMeta):
+                securityLogger.logEvent(
+                    "ACCESS_DENIED",
+                    user_id,
+                    {"resource": docId, "reason": "Viewer permission required"},
+                    "WARNING"
+                )
+                return jsonify({"error": "You do not have permission to view this document."}), 403
+
+            # check for editor permission
+            if requiredRole == "editor" and not isEditor(user_id, docMeta):
+                securityLogger.logEvent(
+                    "ACCESS_DENIED",
+                    user_id,
+                    {"resource": docId, "reason": "Editor permission required"},
+                    "WARNING"
+                )
+                return jsonify({"error": "You do not have permission to modify this document."}), 403
+
+            # if checks pass allow 
+            return f(*args, **kwargs)
+        return wrapper
     return decorator
 
 @app.before_request
