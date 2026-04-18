@@ -152,3 +152,39 @@ function showToast(message, type = "success") {
         setTimeout(() => toast.remove(), 300);
     }, 2000);
 }
+function openPasswordModal() {
+    document.getElementById("password-modal").classList.remove("hidden");
+}
+
+function closePasswordModal() {
+    document.getElementById("password-modal").classList.add("hidden");
+}
+
+async function submitPasswordChange() {
+    const oldPass = document.getElementById("old-password").value;
+    const newPass = document.getElementById("new-password").value;
+    const confirmPass = document.getElementById("confirm-password").value;
+
+    if (newPass !== confirmPass) {
+        alert("New passwords do not match.");
+        return;
+    }
+
+    const res = await fetch("/changePassword", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            oldPassword: oldPass,
+            newPassword: newPass
+        })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+        alert("Password updated successfully.");
+        closePasswordModal();
+    } else {
+        alert(data.error || "Password update failed.");
+    }
+}

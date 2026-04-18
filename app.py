@@ -701,5 +701,40 @@ def deleteDocument():
 def dashboard():
     return render_template('dashboard.html')
 
+@app.route('/changePassword', methods=['POST'])
+@requireAuthentication
+def change_password():
+    data = request.get_json()
+    old_password = data.get("oldPassword")
+    new_password = data.get("newPassword")
+
+    username = g.user_id  
+
+    with open("data/users.json", "r") as f:
+        users = json.load(f)
+
+    user = users.get(username)
+
+    # verify old password
+    if not bcrypt.checkpw(old_password.encode(), user["password_hash"].encode()):
+        return jsonify({"error": "Incorrect current password"}), 400
+
+    # validate new password strength 
+    if not validatePassword(new_password):
+        return jsonify({"error": "Password does not meet requirements"}), 400
+
+    # hash new password
+    new_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt(12)).decode()
+
+    user["password_hash"] = new_hash
+
+    # save
+    with open("data/users.json", "w") as f:
+        json.dump(users, f, indent=4)
+
+    return jsonify({"success": True})
+
+
+
 if __name__ == '__main__':
     app.run(debug=True)
