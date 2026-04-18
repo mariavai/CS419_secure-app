@@ -21,10 +21,10 @@ from classes import EncryptedStorage, SessionManager, SecurityLogger, DocumentMa
 app = Flask(__name__)
 
 trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
+documentManager = DocumentManager()
 sessionManager = SessionManager()
 securityLogger = SecurityLogger()
 encryptedStorage = EncryptedStorage()
-documentManager = DocumentManager()
 
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
@@ -73,29 +73,29 @@ def register():
         # logEvent() takes 4 args: (event_type, user_id, details, severity) || event_type: string label that describes what happened 
         # user_id: None -> not logged in yet || details: a dict {}: field -> which input failed, reason -> why || severity: 'WARNING'
         securityLogger.logEvent('INPUT_VALIDATION_FAILURE', None, {'field': 'username', 'reason': 'Invalid format'}, 'WARNING')
-        return jsonify({'error': 'Invalid username'})
+        return jsonify({'error': 'Invalid username'}), 400
     if not validateEmail(email):
         securityLogger.logEvent('INPUT_VALIDATION_FAILURE', None, {'field': 'email', 'reason': 'Invalid format'}, 'WARNING')
-        return jsonify({'error': 'Invalid email'})
+        return jsonify({'error': 'Invalid email'}), 400
     if not validatePassword(password):
         securityLogger.logEvent('INPUT_VALIDATION_FAILURE', None, {'field': 'password', 'reason': 'Does not meet requirements'}, 'WARNING')
-        return jsonify({'error': 'Password does not meet requirements'})
+        return jsonify({'error': 'Password does not meet requirements'}), 400
     if password != confirm_password:
-        return jsonify({'error': 'Passwords do not match'})
+        return jsonify({'error': 'Passwords do not match'}), 401
     
     users = getUsers()
     
     #check for username dupes when creating new users
     if username in users:
         securityLogger.logEvent('REGISTRATION_FAILED', None, {'reason': 'Username already taken', 'username': username}, 'WARNING')
-        return jsonify({'error': 'Username already taken'})
+        return jsonify({'error': 'Username already taken'}), 400
     
     
     #check for email dupes when creating new users
     for data in users.values():
         if data.get('email') == email:
             securityLogger.logEvent('REGISTRATION_FAILED', None, {'reason': 'Email already registered'}, 'WARNING')
-            return jsonify({'error': 'Email already registered'})
+            return jsonify({'error': 'Email already registered'}), 400
     
     salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
@@ -105,7 +105,7 @@ def register():
         "email": email,
         "password_hash": hashed.decode('utf-8'),
         "created_at": time.time(),
-        "role": "user",
+        "role": ROLE_GUEST,
         "failed_attempts": 0,
         "locked_until": None
         }
@@ -113,7 +113,7 @@ def register():
 
     #user_id = username || no severity, default is info
     securityLogger.logEvent('REGISTRATION_SUCCESS', username, {'username': username})
-    return jsonify({'success': True})
+    return jsonify({'success': True}), 200
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -122,7 +122,7 @@ def login():
 
         #loginIP stores IP to track later
         securityLogger.logEvent('SUSPICIOUS_ACTIVITY', None, {'reason': 'Rate limit exceeded', 'ip': loginIP}, 'WARNING')
-        return jsonify({'error': 'Too many login attempts made, please wait a bit before attempting to login again.'})
+        return jsonify({'error': 'Too many login attempts made, please wait a bit before attempting to login again.'}), 401
 
     data = request.get_json()
     username = data.get('username')
@@ -134,11 +134,11 @@ def login():
     if not user:
         #user_id = none, username doesn't exist
         securityLogger.logEvent('LOGIN_FAILED', None, {'username': username, 'reason': 'User does not exist'}, 'WARNING')
-        return jsonify({'error': 'User does not exist.'})
+        return jsonify({'error': 'User does not exist.'}), 400
     #check if account has been locked
     if user.get('locked_until') and time.time() < user['locked_until']:
         securityLogger.logEvent('LOGIN_FAILED', username, {'reason': 'Account is locked'}, 'WARNING')
-        return jsonify({'error': 'Account locked due to too many failed attempts, please try again later.'})
+        return jsonify({'error': 'Account locked due to too many failed attempts, please try again later.'}), 401
     
     if not bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
         user['failed_attempts'] += 1
@@ -148,7 +148,7 @@ def login():
             user['locked_until'] = time.time() + 900 
             securityLogger.logEvent('ACCOUNT_LOCKED', username, {'reason': '5 failed login attempts'}, 'ERROR')
         saveUsers(users)
-        return jsonify({'error': 'Invalid credentials'})
+        return jsonify({'error': 'Invalid credentials'}), 401
     user['failed_attempts'] = 0
     user['locked_until'] = None
     saveUsers(users)
@@ -157,7 +157,7 @@ def login():
     securityLogger.logEvent('SESSION_CREATED', username, {})
     securityLogger.logEvent('LOGIN_SUCCESS', username, {'username': username})
 
-    response = jsonify({'success': True, 'message': 'Successful login!'})
+    response = jsonify({'success': True, 'role': user['role'], 'message': 'Successful login!'})
     
     response.set_cookie(
         'session_token',
@@ -167,7 +167,7 @@ def login():
         samesite='Strict',
         max_age=1800
     )
-    return response
+    return response, 200
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -175,7 +175,7 @@ def logout():
     if token:
         sessionManager.destroySession(token)
         securityLogger.logEvent('SESSION_DESTROYED', g.user_id, {})
-    response = jsonify({'success': True, 'message': 'Successful logout!'})
+    response = jsonify({'success': True, 'message': 'Successful logout!'}), 200
     response.set_cookie('session_token', '', expires=0, httponly=True, samesite='Strict')
     return response
 
@@ -330,6 +330,8 @@ def requireDocumentPermission(docArgName, requiredRole):
 
 @app.before_request
 def loadUserSession():
+    if request.path.startswith('/static/'): #skip checking for ui files
+        return
     token = request.cookies.get('session_token')
     if token:
         sessionData = sessionManager.validateSession(token)
@@ -349,11 +351,11 @@ def loadUserSession():
 #@requireDocumentPermission("docId", "editor")   # must be editor or owner
 def uploadDocument():
     if 'file' not in request.files:
-        return jsonify({'error': 'No file found'})
+        return jsonify({'error': 'No file found'}), 404
     
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': 'No selected file'})
+        return jsonify({'error': 'No selected file'}), 400
     #sanitize filename --> prevent path tranversal
     fileName = secure_filename(file.filename)
     docID = str(uuid.uuid4())   #create unique doc ID
@@ -376,14 +378,14 @@ def uploadDocument():
             securityLogger.logEvent('ADMIN_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
         else:
             securityLogger.logEvent('USER_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
-        return jsonify({'success': True, 'fileName': fileName})
+        return jsonify({'success': True, 'fileName': fileName}), 200
     
     except Exception as e:
         if role == 'admin':
             securityLogger.logEvent('ADMIN_UPLOAD_FAILURE', g.user_id, {'error': str(e)}, 'ERROR')
         else:
             securityLogger.logEvent('USER_UPLOAD_FAILURE', g.user_id, {'error': str(e)}, 'ERROR')
-        return jsonify({'error': 'Upload failed'})
+        return jsonify({'success': False, 'error': 'Upload failed'}), 500
     
 
     
@@ -396,7 +398,7 @@ def downloadDocument(docID):
     metadata = documentManager.loadMetadata()
     doc = metadata.get(docID)
     if not doc:
-        return jsonify({'error': 'Document not found'})
+        return jsonify({'error': 'Document not found'}), 404
 
     currUser = g.user_id
     role = getCurrUserRole()
@@ -405,7 +407,7 @@ def downloadDocument(docID):
     userHasAccess = role == 'admin' or doc['owner'] == currUser or currUser in doc['sharedWith']
     if not userHasAccess:
         securityLogger.logEvent('UNAUTHORIZED_ACCESS', currUser, {'docID': docID}, 'CRITICAL')
-        return jsonify({'error': 'Access denied.'})
+        return jsonify({'error': 'Access denied.'}), 403
 
     try:
         #get path from metadata which was generated by getFilePath during upload
@@ -422,7 +424,7 @@ def downloadDocument(docID):
 
     except Exception as e:
         securityLogger.logEvent('DOWNLOAD_ERROR', currUser, {'error': str(e)}, 'ERROR')
-        return jsonify({'error': 'Could not process download.'})
+        return jsonify({'success': False, 'error': 'Could not process download.'}), 500
 
 
 @app.route('/share', methods=['POST'])
@@ -469,7 +471,7 @@ def shareDocument():
         {"resource": docId, "action": "share", "targetUser": targetUser, "role": role}
     )
 
-    return jsonify({"success": True, "message": f"Document shared with {targetUser} as {role}."})
+    return jsonify({"success": True, "message": f"Document shared with {targetUser} as {role}."}), 200
 
 @app.route('/unshare', methods=['POST'])
 @requireAuthentication
@@ -511,7 +513,7 @@ def unshareDocument():
         {"resource": docId, "action": "unshare", "targetUser": targetUser}
     )
 
-    return jsonify({"success": True, "message": f"{targetUser} no longer has access."})
+    return jsonify({"success": True, "message": f"{targetUser} no longer has access."}), 200
 
 @app.route('/downgradeToGuest', methods=['POST'])
 @requireAuthentication
@@ -542,7 +544,7 @@ def downgradeToGuest():
         "WARNING"
     )
 
-    return jsonify({"success": True, "message": f"{username} has been downgraded to guest."})
+    return jsonify({"success": True, "message": f"{username} has been downgraded to guest."}), 200
 
 @app.route('/upgradeRole', methods=['POST'])
 @requireAuthentication
@@ -578,7 +580,7 @@ def upgradeRole():
         "INFO"
     )
 
-    return jsonify({"success": True, "message": f"{username} has been upgraded to {newRole}."})
+    return jsonify({"success": True, "message": f"{username} has been upgraded to {newRole}."}), 200
 
 @app.route('/findUserFileList', methods=['GET'])
 @requireAuthentication
@@ -597,14 +599,35 @@ def findUserFileList():
                 'createdAt': doc['createdAt'],
                 'permission': 'admin' if role == 'admin' else ('owner' if doc['owner'] == currUser else doc['sharedWith'].get(currUser))
             })
-    return jsonify(visibleFiles)
+    return jsonify(visibleFiles), 200
 
-
+@app.route('/findUsersList', methods=['GET'])
+@requireAuthentication
+@requireRole(ROLE_ADMIN)
+def findUsersList():
+    users = getUsers()
+    usersList = []
+    for username, data in users.items():
+        usersList.append({
+            'username': username,
+            'email': data.get('email', 'N/A'),
+            'role': data.get('role', 'guest'),
+            'status': 'Locked' if data.get('locked_until') and time.time() < data['locked_until'] else 'Active'     #account locked status
+        })
+        
+    return jsonify(usersList), 200
 
 @app.route('/')
 def home():
     return render_template('index.html')
 
+@app.route('/deleteDocument', methods=['POST'])
+def deleteDocument():
+    pass
+
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html')
+
 if __name__ == '__main__':
     app.run(debug=True)
-###########################

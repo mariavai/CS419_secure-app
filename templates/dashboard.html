@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure File Storage System</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header class="nav-header">
+        <strong>Dashboard</strong>
+        <button class="btn" style="width: auto; background: var(--text-muted);" onclick="logout()">Logout</button>
+    </header>
+
+    <main class="dashboard-container">
+        <div id="admin-tabs" class="tabs hidden">
+            <button class="tab-btn active" onclick="switchTab('files')">Manage Files</button>
+            <button class="tab-btn" onclick="switchTab('users')">Manage Users</button>
+        </div>
+
+        <section id="view-files">
+            <div class="toolbar">
+                <button class="btn" onclick="document.getElementById('file-upload').click()">Upload File</button>
+                <input type="file" id="file-upload" class="hidden" onchange="uploadFile(event)">
+                <button id="btn-download" class="btn" disabled onclick="downloadSelected()">Download Selected</button>
+            </div>
+
+            <div class="file-list">
+                <div class="file-header">
+                    <span>File Name</span>
+                    <span>Owner</span>
+                    <span>Date</span>
+                </div>
+                <div id="file-container"></div>
+            </div>
+        </section>
+
+        <section id="view-users" class="hidden">
+            <div class="file-list">
+                <div class="file-header">
+                    <span>Username</span>
+                    <span>Role</span>
+                    <span>Status</span>
+                </div>
+                <div id="user-container"></div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

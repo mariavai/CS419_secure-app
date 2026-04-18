@@ -44,11 +44,17 @@ class EncryptedStorage:
     
 
 class SessionManager:
-    def __init__(self, timeout=1800): #30 minutes
-        if not os.path.exists('data'):  #create data directory if it doesnt exist
-            os.makedirs('data')
+    def __init__(self, timeout=1800, sessions_file='data/sessions.json', users_file='data/users.json'): #30 minutes
         self.timeout = timeout
-        self.sessions_file = 'data/sessions.json'
+        self.sessions_file = sessions_file
+        self.users_file = users_file
+        if not os.path.exists(self.sessions_file):
+            with open(self.sessions_file, 'w') as f:
+                json.dump({}, f)
+        if not os.path.exists(self.users_file):
+            with open(self.users_file, 'w') as f:
+                json.dump({}, f)
+        
         
     def createSession(self, user_id):
         """Create new session token"""
@@ -119,6 +125,10 @@ class SecurityLogger:
     def __init__(self, log_file='logs/security.log'):
         if not os.path.exists('logs'):  #create logs directory if it doesnt exist
             os.makedirs('logs')
+        # ensure log file exists
+        if not os.path.exists(log_file):
+            with open(log_file, 'w') as f:
+                json.dump({}, f)
         self.logger = logging.getLogger('security')
         self.logger.setLevel(logging.INFO)
         handler = logging.FileHandler(log_file)

@@ -1,1 +1,34 @@
-{}
+{
+    "BXu1_qWVvlSzH5GXre7mQmtgnrEVvHfv9QfPBuGAf8w": {
+        "token": "BXu1_qWVvlSzH5GXre7mQmtgnrEVvHfv9QfPBuGAf8w",
+        "user_id": "ritsbits",
+        "created_at": 1776483892.973001,
+        "last_activity": 1776484026.3209321,
+        "ip_address": "127.0.0.1",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    },
+    "NNgANdN_AKBa9CA-D-ARiTiHSiu8wZ1dlXDuslvZMtQ": {
+        "token": "NNgANdN_AKBa9CA-D-ARiTiHSiu8wZ1dlXDuslvZMtQ",
+        "user_id": "admin0",
+        "created_at": 1776484026.712716,
+        "last_activity": 1776484244.35367,
+        "ip_address": "127.0.0.1",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    },
+    "vmwvNUVYpvRfcwNxYXn6f_YhNew6P5N6bCczqh7pqcg": {
+        "token": "vmwvNUVYpvRfcwNxYXn6f_YhNew6P5N6bCczqh7pqcg",
+        "user_id": "admin0",
+        "created_at": 1776484254.50608,
+        "last_activity": 1776484635.028107,
+        "ip_address": "127.0.0.1",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    },
+    "93fM361IBMVSpSrwvfo1SGrTxHCICuY29k9KUpckWRQ": {
+        "token": "93fM361IBMVSpSrwvfo1SGrTxHCICuY29k9KUpckWRQ",
+        "user_id": "admin0",
+        "created_at": 1776484635.4230661,
+        "last_activity": 1776484635.568347,
+        "ip_address": "127.0.0.1",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    }
+}
