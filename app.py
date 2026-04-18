@@ -419,10 +419,8 @@ def loadUserSession():
 @app.route('/upload', methods=['POST'])
 @requireAuthentication
 @requireRole(ROLE_ADMIN, ROLE_USER)   # guests NOT allowed
-#@requireDocumentPermission("docId", "editor")   # must be editor or owner
 def uploadDocument():
-    #check if file exists
-    
+    # check if file exists
     if 'file' not in request.files:
         return jsonify({'error': 'No file found'}), 404
     
@@ -430,11 +428,10 @@ def uploadDocument():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
-    #sanitize filename --> prevent path traversal
-    
+    # sanitize filename --> prevent path traversal
     fileName = secure_filename(file.filename)
 
-    #extension whitelist 
+    # extension whitelist
     ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
     _, ext = os.path.splitext(fileName.lower())
 
@@ -447,7 +444,24 @@ def uploadDocument():
         )
         return jsonify({'error': 'File type not allowed'}), 400
 
-    #file size limit 
+    # MIME type validation
+    ALLOWED_MIME_TYPES = {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain"
+    }
+
+    if file.mimetype not in ALLOWED_MIME_TYPES:
+        securityLogger.logEvent(
+            'UPLOAD_BLOCKED',
+            g.user_id,
+            {'reason': 'Invalid MIME type', 'mimetype': file.mimetype, 'fileName': fileName},
+            'WARNING'
+        )
+        return jsonify({'error': 'Invalid file type (MIME mismatch)'}), 400
+
+    # file size limit
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
     file.seek(0, os.SEEK_END)
     size = file.tell()
@@ -462,43 +476,38 @@ def uploadDocument():
         )
         return jsonify({'error': 'File too large (max 10MB)'}), 400
 
-    docID = str(uuid.uuid4())   #create unique doc ID
+    # create unique doc ID
+    docID = str(uuid.uuid4())
     role = getCurrUserRole()
 
-    #secure hashed file path
+    # secure hashed file path
     filePath = documentManager.getSecureFilePath(docID, role)
-    
-    
+
     try:
-        #encrypt file bytes and then upload
-        
+        # encrypt file bytes and then upload
         encrypted_content = encryptedStorage.encryptDataBytes(file.read())
-        
+
         with open(filePath, 'wb') as f:
             f.write(encrypted_content)
 
-        
-        #add metadata + versioning + audit log
-       
+        # add metadata + versioning + audit log
         documentManager.createDocumentEntry(docID, g.user_id, fileName)
         documentManager.addVersion(docID, filePath, g.user_id)
         documentManager.logAction(docID, g.user_id, "UPLOAD")
 
-        
-        #security logging
-       
+        # security logging
         if role == 'admin':
             securityLogger.logEvent('ADMIN_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
         else:
             securityLogger.logEvent('USER_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
-        
+
+        # access logging
         accessLogger.logEvent("UPLOAD_SUCCESS", g.user_id, {"docID": docID, "fileName": fileName})
 
         return jsonify({'success': True, 'fileName': fileName}), 200
-    
+
     except Exception as e:
         # error logging
-      
         if role == 'admin':
             securityLogger.logEvent('ADMIN_UPLOAD_FAILURE', g.user_id, {'error': str(e)}, 'ERROR')
         else:
