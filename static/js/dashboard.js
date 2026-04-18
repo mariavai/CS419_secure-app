@@ -41,12 +41,13 @@ async function loadFiles() {
             const row = document.createElement('div');
             row.className = 'file-row';
             row.onclick = () => selectRow(row, f.docID);
-            const dateStr = new Date(f.uploadDate * 1000).toLocaleDateString();
-            
+            const dateStr = new Date(f.createdAt * 1000).toLocaleDateString();
+
             row.innerHTML = `
                 <span>${f.fileName}</span>
                 <span>${f.owner}</span>
                 <span>${dateStr}</span>
+                <button class="danger-btn small-btn" onclick="deleteDocument('${f.docID}', event)">Delete</button>
             `;
             container.appendChild(row);
         });
@@ -107,4 +108,47 @@ async function logout() {
     await fetch('/logout', { method: 'POST' });
     localStorage.removeItem('userRole');
     window.location.href = '/';
+}
+
+async function deleteDocument(docID, event) {
+    event.stopPropagation(); // prevent row selection
+
+    if (!confirm("Are you sure you want to delete this document? This cannot be undone.")) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/deleteDocument', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ docId: docID })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast("Document deleted successfully!", "success");
+            loadFiles(); // refresh list
+        } else {
+            showToast(data.error || "Delete failed", "error");
+        }
+    } catch (err) {
+        showToast("Server connection failed.", "error");
+    }
+}
+
+function showToast(message, type = "success") {
+    const container = document.getElementById("toast-container");
+    if (!container) return alert(message);
+
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add("fade-out");
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
 }

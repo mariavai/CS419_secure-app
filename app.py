@@ -285,8 +285,25 @@ def requireDocumentPermission(docArgName, requiredRole):
                 return jsonify({"error": "Please login."}), 401
 
             # get docId
-            data = request.get_json()
-            docId = data.get(docArgName)
+            #GET requests don't have JSON try JSON first
+            data = None
+            if request.is_json:
+                data = request.get_json(silent=True)
+
+            docId = None
+
+            #if JSON exists POST routes share/unshare
+            if data and docArgName in data:
+                docId = data.get(docArgName)
+
+            #otherwise get docId from URL parameters GET /download/<docID>
+            if not docId:
+                docId = kwargs.get(docArgName)
+
+            #if still missing, return error
+            if not docId:
+                return jsonify({"error": "Document ID missing"}), 400
+
             docMeta = getDocument(docId)
 
             # check if doc exists
@@ -327,6 +344,7 @@ def requireDocumentPermission(docArgName, requiredRole):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
 
 @app.before_request
 def loadUserSession():
@@ -393,7 +411,7 @@ def uploadDocument():
 @app.route('/download/<docID>', methods=['GET'])
 @requireAuthentication
 @requireRole(ROLE_ADMIN, ROLE_USER, ROLE_GUEST)
-@requireDocumentPermission("docId", "viewer")
+@requireDocumentPermission("docID", "viewer")
 def downloadDocument(docID):
     metadata = documentManager.loadMetadata()
     doc = metadata.get(docID)
@@ -622,8 +640,62 @@ def home():
     return render_template('index.html')
 
 @app.route('/deleteDocument', methods=['POST'])
+@requireAuthentication
 def deleteDocument():
-    pass
+    # delete a document (owner or admin only)
+    user = getCurrUser()
+    data = request.get_json()
+
+    docId = data.get("docId")
+    docMeta = getDocument(docId)
+
+    # check if doc exists
+    if not docMeta:
+        return jsonify({"error": "Document not found"}), 404
+
+    # only owner or admin can delete
+    if getCurrUserRole() != ROLE_ADMIN and not isOwner(user["username"], docMeta):
+        securityLogger.logEvent(
+            "ACCESS_DENIED",
+            user["username"],
+            {"resource": docId, "reason": "Only owner/admin can delete"},
+            "WARNING"
+        )
+        return jsonify({"error": "You do not have permission to delete this document."}), 403
+
+    # delete encrypted file
+    try:
+        for version in docMeta.get("versions", []):
+            filePath = version.get("path")
+            if filePath and os.path.exists(filePath):
+                os.remove(filePath)
+    except Exception as e:
+        securityLogger.logEvent(
+            "DELETE_ERROR",
+            user["username"],
+            {"resource": docId, "error": str(e)},
+            "ERROR"
+        )
+        return jsonify({"error": "Failed to delete file from storage."}), 500
+
+    # remove metadata entry
+    metadata = documentManager.loadMetadata()
+    if docId in metadata:
+        del metadata[docId]
+        documentManager.saveMetadata(metadata)
+
+    # log to audit log
+    documentManager.logAction(docId, user["username"], "DELETE")
+
+    # log to security log
+    securityLogger.logEvent(
+        "DATA_ACCESS",
+        user["username"],
+        {"resource": docId, "action": "delete"}
+    )
+
+    return jsonify({"success": True, "message": "Document deleted successfully."}), 200
+
 
 @app.route('/dashboard')
 def dashboard():

@@ -3,3 +3,30 @@ __pycache__
 data/files/
 data/*.json
 logs/*.log
+
+# python cache
+__pycache__/
+*.pyc
+
+#virtual enviorments
+venv/
+.env/
+
+#OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# data
+data/
+logs/
+
+#encryption keys
+*.key
+*.pem
+
+#one drive sync
+*.lnk
+~$*
+
+uploads/

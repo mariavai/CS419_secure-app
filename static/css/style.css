@@ -101,21 +101,49 @@ body {
     border-radius: 6px;
     overflow: hidden;
 }
+
 .file-header, .file-row {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr;
+    grid-template-columns: 2fr 1fr 1fr auto;
     padding: 0.75rem 1rem;
     border-bottom: 1px solid var(--border);
 }
+
 .file-header {
     background: var(--bg-color);
-    font-weight: 600; font-size: 0.875rem; color: var(--text-muted);
+    font-weight: 600; 
+    font-size: 0.875rem; 
+    color: var(--text-muted);
 }
-.file-row { cursor: pointer; font-size: 0.9rem; align-items: center; }
+
+.file-row { 
+    cursor: pointer; 
+    font-size: 0.9rem; 
+    align-items: center; 
+}
 .file-row:last-child { border-bottom: none; }
 .file-row:hover { background: var(--row-hover); }
 .file-row.selected { background: var(--row-selected); }
 
+/* ⭐ Prevent button wrapping */
+.file-row button {
+    white-space: nowrap;
+}
+
+/* ⭐ Small delete button */
+.small-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    margin-left: 8px;
+    background-color: var(--danger);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.small-btn:hover {
+    background-color: #dc2626;
+}
 
 #toast-container {
     position: fixed;
