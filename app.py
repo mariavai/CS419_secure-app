@@ -683,7 +683,8 @@ def getDocumentAudit(docId):
         "owner": docMeta.get("owner"),
         "createdAt": docMeta.get("createdAt"),
         "versions": docMeta.get("versions", []),
-        "auditLog": docMeta.get("auditLog", [])
+        "auditLog": docMeta.get("auditLog", []),
+        "sharedWith": docMeta.get("sharedWith", {})
     }), 200
 
 

@@ -83,6 +83,31 @@
     </div>
 </div>
 
+<div id="share-modal" class="modal hidden">
+    <div class="modal-content">
+        <h3>Share Document</h3>
+
+        <label>Share with (username)</label>
+        <input type="text" id="share-username">
+
+        <label>Permission</label>
+        <select id="share-role">
+            <option value="viewer">Viewer</option>
+            <option value="editor">Editor</option>
+        </select>
+
+        <button class="btn" onclick="submitShare()">Share</button>
+
+        <h4>Current Access</h4>
+        <div id="share-access-list"></div>
+
+        <div class="modal-actions">
+            <button class="btn danger-btn" onclick="closeShareModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+
     
 </body>
 </html>

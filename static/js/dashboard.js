@@ -48,10 +48,12 @@ async function loadFiles() {
                 <span>${f.owner}</span>
                 <span>${dateStr}</span>
                 <span>
+                    <button class="btn small-btn" onclick="openShareModal('${f.docID}', event)">Share</button>
                     <button class="btn small-btn" onclick="openAuditModal('${f.docID}', event)">History</button>
                     <button class="danger-btn small-btn" onclick="deleteDocument('${f.docID}', event)">Delete</button>
                 </span>
             `;
+
 
 
             container.appendChild(row);
@@ -253,5 +255,93 @@ function openAuditModal(docID, event) {
 
 function closeAuditModal() {
     document.getElementById("audit-modal").classList.add("hidden");
+}
+
+let currentShareDocID = null;
+
+function openShareModal(docID, event) {
+    event.stopPropagation();
+    currentShareDocID = docID;
+
+    fetch(`/document/${docID}/audit`)
+        .then(res => res.json())
+        .then(data => {
+            const list = document.getElementById("share-access-list");
+            list.innerHTML = "";
+
+            const shared = data.sharedWith || {};
+
+            if (Object.keys(shared).length === 0) {
+                list.innerHTML = "<p>No shared users.</p>";
+            } else {
+                list.innerHTML = "";
+                Object.entries(shared).forEach(([user, role]) => {
+                    const row = document.createElement("div");
+                    row.className = "share-access-row";
+                    row.innerHTML = `
+                        <span>${user} — ${role}</span>
+                        <button class="danger-btn small-btn" onclick="unshareUser('${user}')">Unshare</button>
+                    `;
+                    list.appendChild(row);
+                });
+            }
+
+            document.getElementById("share-modal").classList.remove("hidden");
+        });
+}
+
+
+function closeShareModal() {
+    document.getElementById("share-modal").classList.add("hidden");
+}
+
+async function submitShare() {
+    const targetUser = document.getElementById("share-username").value;
+    const role = document.getElementById("share-role").value;
+
+    const res = await fetch("/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            docId: currentShareDocID,
+            targetUser,
+            role
+        })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+        showToast("Document shared!", "success");
+        closeShareModal();
+        loadFiles();
+    } else {
+        showToast(data.error || "Share failed", "error");
+    }
+}
+
+async function unshareUser(username) {
+    const res = await fetch("/unshare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            docId: currentShareDocID,
+            targetUser: username
+        })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+        showToast("Access removed", "success");
+
+        // Reload modal so the list updates
+        openShareModal(currentShareDocID, { stopPropagation: () => {} });
+
+        // Refresh file list
+        loadFiles();
+    } else {
+        showToast(data.error || "Unshare failed", "error");
+    }
 }
 
