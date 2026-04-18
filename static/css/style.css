@@ -45,8 +45,12 @@ body {
     border: 1px solid var(--border); border-radius: 4px; 
     box-sizing: border-box; 
 }
+.auth-box .btn {
+    width: 100%;
+}
+
 .btn {
-    width: 100%; padding: 0.6rem;
+    width: auto; padding: 0.6rem;
     background: var(--primary); color: white;
     border: none; border-radius: 4px;
     cursor: pointer; font-weight: 500;

@@ -1,7 +1,7 @@
 #python app.py
 #http://localhost:5000 in browser
 
-from flask import Flask, request, jsonify, g, render_template, send_file  #request reads incoming data, jsonify turns python into json to send 
+from flask import Flask, request, jsonify, g, render_template, send_file, redirect  #request reads incoming data, jsonify turns python into json to send 
 from functools import wraps
 import bcrypt
 import json
@@ -20,6 +20,7 @@ from classes import EncryptedStorage, SessionManager, SecurityLogger, DocumentMa
 
 app = Flask(__name__)
 
+
 trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
 documentManager = DocumentManager()
 sessionManager = SessionManager()
@@ -30,9 +31,46 @@ ROLE_ADMIN = "admin"
 ROLE_USER = "user"
 ROLE_GUEST = "guest"
 
+ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+@app.after_request
+def set_security_headers(response):
+    # Content Security Policy
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline';"
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none'; "
+    )
+
+    # Prevent clickjacking
+    response.headers['X-Frame-Options'] = 'DENY'
+
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+
+    # Legacy XSS protection
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+
+    # Referrer policy
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+    # Permissions Policy
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+
+    # HSTS (HTTP Strict Transport Security)
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+    return response
 
 
 ## helper 
+def is_allowed_file(filename):
+    _, ext = os.path.splitext(filename.lower())
+    return ext in ALLOWED_EXTENSIONS
 def getUsers():
     with open('data/users.json', 'r') as f: #open users.json as read file 
         return json.load(f) #converts json into python
@@ -163,7 +201,7 @@ def login():
         'session_token',
         token,
         httponly=True,
-        secure=True,
+        secure=False, ##not using https
         samesite='Strict',
         max_age=1800
     )
@@ -346,6 +384,20 @@ def requireDocumentPermission(docArgName, requiredRole):
     return decorator
 
 
+# http --> https
+"""
+@app.before_request
+def require_https():
+    # skip HTTPS enforcement for static files
+    if request.path.startswith('/static/'):
+        return
+
+    #only enforce HTTPS outside development
+    if app.env != "development" and not request.is_secure:
+        secure_url = request.url.replace("http://", "https://", 1)
+        return redirect(secure_url, code=301)
+
+"""
 @app.before_request
 def loadUserSession():
     if request.path.startswith('/static/'): #skip checking for ui files
@@ -368,42 +420,89 @@ def loadUserSession():
 @requireRole(ROLE_ADMIN, ROLE_USER)   # guests NOT allowed
 #@requireDocumentPermission("docId", "editor")   # must be editor or owner
 def uploadDocument():
+    #check if file exists
+    
     if 'file' not in request.files:
         return jsonify({'error': 'No file found'}), 404
     
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-    #sanitize filename --> prevent path tranversal
+
+    #sanitize filename --> prevent path traversal
+    
     fileName = secure_filename(file.filename)
+
+    #extension whitelist 
+    ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
+    _, ext = os.path.splitext(fileName.lower())
+
+    if ext not in ALLOWED_EXTENSIONS:
+        securityLogger.logEvent(
+            'UPLOAD_BLOCKED',
+            g.user_id,
+            {'reason': 'Disallowed file type', 'fileName': fileName},
+            'WARNING'
+        )
+        return jsonify({'error': 'File type not allowed'}), 400
+
+    #file size limit 
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+
+    if size > MAX_FILE_SIZE:
+        securityLogger.logEvent(
+            'UPLOAD_BLOCKED',
+            g.user_id,
+            {'reason': 'File too large', 'size': size},
+            'WARNING'
+        )
+        return jsonify({'error': 'File too large (max 10MB)'}), 400
+
     docID = str(uuid.uuid4())   #create unique doc ID
     role = getCurrUserRole()
+
+    #secure hashed file path
     filePath = documentManager.getSecureFilePath(docID, role)
     
     
     try:
         #encrypt file bytes and then upload
+        
         encrypted_content = encryptedStorage.encryptDataBytes(file.read())
         
         with open(filePath, 'wb') as f:
             f.write(encrypted_content)
-        #add metadata
+
+        
+        #add metadata + versioning + audit log
+       
         documentManager.createDocumentEntry(docID, g.user_id, fileName)
         documentManager.addVersion(docID, filePath, g.user_id)
         documentManager.logAction(docID, g.user_id, "UPLOAD")
 
+        
+        #security logging
+       
         if role == 'admin':
             securityLogger.logEvent('ADMIN_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
         else:
             securityLogger.logEvent('USER_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
+
         return jsonify({'success': True, 'fileName': fileName}), 200
     
     except Exception as e:
+        # error logging
+      
         if role == 'admin':
             securityLogger.logEvent('ADMIN_UPLOAD_FAILURE', g.user_id, {'error': str(e)}, 'ERROR')
         else:
             securityLogger.logEvent('USER_UPLOAD_FAILURE', g.user_id, {'error': str(e)}, 'ERROR')
+
         return jsonify({'success': False, 'error': 'Upload failed'}), 500
+
     
 
     
@@ -457,9 +556,18 @@ def shareDocument():
     targetUser = data.get("targetUser")
     role = data.get("role")  # view or editor
 
-    
+    #validate role input
     if role not in ["viewer", "editor"]:
         return jsonify({"error": "Invalid role"}), 400
+
+    # does target exisr
+    users = getUsers()
+    if targetUser not in users:
+        return jsonify({"error": "Target user does not exist"}), 400
+
+    # cant self share
+    if targetUser == user["username"]:
+        return jsonify({"error": "You cannot share a document with yourself."}), 400
 
     # load document metadata
     docMeta = getDocument(docId)
@@ -475,6 +583,10 @@ def shareDocument():
             "WARNING"
         )
         return jsonify({"error": "You do not have permission to share this document."}), 403
+
+    # no dupe sharing
+    if targetUser in docMeta.get("sharedWith", {}):
+        return jsonify({"error": "User already has access to this document."}), 400
 
     # share
     documentManager.shareDocument(docId, targetUser, role)
@@ -501,6 +613,15 @@ def unshareDocument():
     docId = data.get("docId")
     targetUser = data.get("targetUser")
 
+    # target exists
+    users = getUsers()
+    if targetUser not in users:
+        return jsonify({"error": "Target user does not exist"}), 400
+
+    # cant unshare self
+    if targetUser == user["username"]:
+        return jsonify({"error": "You cannot unshare a document from yourself."}), 400
+
     # load document metadata
     docMeta = getDocument(docId)
     if not docMeta:
@@ -515,6 +636,10 @@ def unshareDocument():
             "WARNING"
         )
         return jsonify({"error": "You do not have permission to unshare this document."}), 403
+
+    # dont unshare someone who doesnt have access
+    if targetUser not in docMeta.get("sharedWith", {}):
+        return jsonify({"error": "User does not currently have access to this document."}), 400
 
     #unshare
     success = documentManager.unshareDocument(docId, targetUser)
@@ -532,6 +657,35 @@ def unshareDocument():
     )
 
     return jsonify({"success": True, "message": f"{targetUser} no longer has access."}), 200
+
+#view audit log for doc
+@app.route('/document/<docId>/audit', methods=['GET'])
+@requireAuthentication
+@requireDocumentPermission("docId", "viewer")   # must at least be able to view the document
+def getDocumentAudit(docId):
+    # load metadata
+    docMeta = getDocument(docId)
+    if not docMeta:
+        return jsonify({"error": "Document not found"}), 404
+
+    # log access to audit trail
+    documentManager.logAction(docId, g.user_id, "VIEW_AUDIT_TRAIL")
+    securityLogger.logEvent(
+        "DATA_ACCESS",
+        g.user_id,
+        {"resource": docId, "action": "view_audit_trail"}
+    )
+
+    # return audit log + version history
+    return jsonify({
+        "docId": docId,
+        "fileName": docMeta.get("fileName"),
+        "owner": docMeta.get("owner"),
+        "createdAt": docMeta.get("createdAt"),
+        "versions": docMeta.get("versions", []),
+        "auditLog": docMeta.get("auditLog", [])
+    }), 200
+
 
 @app.route('/downgradeToGuest', methods=['POST'])
 @requireAuthentication
@@ -737,4 +891,11 @@ def change_password():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    #generate cert.pem/key.pem as in the spec:
+    # openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
+    app.run(
+        #ssl_context=('cert.pem', 'key.pem'),
+        host='0.0.0.0',
+        port=5000,
+        debug=False
+    )

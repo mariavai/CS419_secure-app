@@ -47,9 +47,15 @@ async function loadFiles() {
                 <span>${f.fileName}</span>
                 <span>${f.owner}</span>
                 <span>${dateStr}</span>
-                <button class="danger-btn small-btn" onclick="deleteDocument('${f.docID}', event)">Delete</button>
+                <span>
+                    <button class="btn small-btn" onclick="openAuditModal('${f.docID}', event)">History</button>
+                    <button class="danger-btn small-btn" onclick="deleteDocument('${f.docID}', event)">Delete</button>
+                </span>
             `;
+
+
             container.appendChild(row);
+            
         });
     } catch (e) {
         console.error("Failed to load files");
@@ -187,4 +193,65 @@ async function submitPasswordChange() {
     } else {
         alert(data.error || "Password update failed.");
     }
+
 }
+
+function openAuditModal(docID, event) {
+    event.stopPropagation(); // prevent row selection
+
+    fetch(`/document/${docID}/audit`)
+        .then(res => res.json())
+        .then(data => {
+            const container = document.getElementById("audit-info");
+
+            if (data.error) {
+                container.innerHTML = `<p class="error">${data.error}</p>`;
+            } else {
+                // Build audit log HTML
+                let auditHTML = `
+                    <p><strong>File:</strong> ${data.fileName}</p>
+                    <p><strong>Owner:</strong> ${data.owner}</p>
+                    <p><strong>Created:</strong> ${new Date(data.createdAt * 1000).toLocaleString()}</p>
+                    <hr>
+                    <h4>Versions</h4>
+                `;
+
+                data.versions.forEach(v => {
+                    auditHTML += `
+                        <div class="audit-entry">
+                            <p><strong>Version:</strong> ${v.version}</p>
+                            <p><strong>Uploaded By:</strong> ${v.uploadedBy}</p>
+                            <p><strong>Timestamp:</strong> ${new Date(v.timestamp * 1000).toLocaleString()}</p>
+                        </div>
+                        <hr>
+                    `;
+                });
+
+                auditHTML += `<h4>Audit Log</h4>`;
+
+                data.auditLog.forEach(a => {
+                    auditHTML += `
+                        <div class="audit-entry">
+                            <p><strong>User:</strong> ${a.user}</p>
+                            <p><strong>Action:</strong> ${a.action}</p>
+                            <p><strong>Timestamp:</strong> ${new Date(a.timestamp * 1000).toLocaleString()}</p>
+                        </div>
+                        <hr>
+                    `;
+                });
+
+                container.innerHTML = auditHTML;
+            }
+
+            document.getElementById("audit-modal").classList.remove("hidden");
+        })
+        .catch(() => {
+            document.getElementById("audit-info").innerHTML = "<p class='error'>Failed to load audit log.</p>";
+            document.getElementById("audit-modal").classList.remove("hidden");
+        });
+}
+
+function closeAuditModal() {
+    document.getElementById("audit-modal").classList.add("hidden");
+}
+

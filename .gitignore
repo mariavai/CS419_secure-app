@@ -4,6 +4,10 @@ data/files/
 data/*.json
 logs/*.log
 
+# TLS certificates
+cert.pem
+key.pem
+
 # python cache
 __pycache__/
 *.pyc
