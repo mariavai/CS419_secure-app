@@ -15,7 +15,7 @@ import uuid
 import io
 from werkzeug.utils import secure_filename
 import hashlib
-from classes import EncryptedStorage, SessionManager, SecurityLogger, DocumentManager
+from classes import EncryptedStorage, SessionManager, SecurityLogger, DocumentManager, AccessLogger
 
 
 app = Flask(__name__)
@@ -25,6 +25,7 @@ trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
 documentManager = DocumentManager()
 sessionManager = SessionManager()
 securityLogger = SecurityLogger()
+accessLogger = AccessLogger()
 encryptedStorage = EncryptedStorage()
 
 ROLE_ADMIN = "admin"
@@ -490,6 +491,8 @@ def uploadDocument():
             securityLogger.logEvent('ADMIN_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
         else:
             securityLogger.logEvent('USER_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
+        
+        accessLogger.logEvent("UPLOAD_SUCCESS", g.user_id, {"docID": docID, "fileName": fileName})
 
         return jsonify({'success': True, 'fileName': fileName}), 200
     
@@ -537,6 +540,7 @@ def downloadDocument(docID):
         securityLogger.logEvent('DOWNLOAD_SUCCESS', currUser, {'docID': docID})
 
         #file to send to browser w/ original general file name
+        accessLogger.logEvent("DOWNLOAD_SUCCESS", currUser, {"docID": docID})
         return send_file(io.BytesIO(decryptedData), download_name=doc['fileName'], as_attachment=True)
 
     except Exception as e:
@@ -601,6 +605,8 @@ def shareDocument():
         {"resource": docId, "action": "share", "targetUser": targetUser, "role": role}
     )
 
+    accessLogger.logEvent("SHARE_SUCCESS", user["username"], {"docID": docId, "targetUser": targetUser, "role": role})
+
     return jsonify({"success": True, "message": f"Document shared with {targetUser} as {role}."}), 200
 
 @app.route('/unshare', methods=['POST'])
@@ -656,12 +662,15 @@ def unshareDocument():
         {"resource": docId, "action": "unshare", "targetUser": targetUser}
     )
 
+    accessLogger.logEvent("UNSHARE_SUCCESS", user["username"], {"docID": docId, "targetUser": targetUser})
+
+
     return jsonify({"success": True, "message": f"{targetUser} no longer has access."}), 200
 
 #view audit log for doc
 @app.route('/document/<docId>/audit', methods=['GET'])
 @requireAuthentication
-@requireDocumentPermission("docId", "viewer")   # must at least be able to view the document
+@requireDocumentPermission("docId", "editor")   # must at least be able to view the document
 def getDocumentAudit(docId):
     # load metadata
     docMeta = getDocument(docId)
@@ -675,6 +684,9 @@ def getDocumentAudit(docId):
         g.user_id,
         {"resource": docId, "action": "view_audit_trail"}
     )
+
+    accessLogger.logEvent("VIEW_AUDIT_LOG", g.user_id, {"docID": docId})
+
 
     # return audit log + version history
     return jsonify({
@@ -772,6 +784,9 @@ def findUserFileList():
                 'createdAt': doc['createdAt'],
                 'permission': 'admin' if role == 'admin' else ('owner' if doc['owner'] == currUser else doc['sharedWith'].get(currUser))
             })
+
+    accessLogger.logEvent("VIEW_FILE_LIST", g.user_id, {})
+
     return jsonify(visibleFiles), 200
 
 @app.route('/findUsersList', methods=['GET'])
@@ -787,7 +802,9 @@ def findUsersList():
             'role': data.get('role', 'guest'),
             'status': 'Locked' if data.get('locked_until') and time.time() < data['locked_until'] else 'Active'     #account locked status
         })
-        
+
+    accessLogger.logEvent("VIEW_USERS_LIST", g.user_id, {})
+    
     return jsonify(usersList), 200
 
 @app.route('/')
@@ -849,6 +866,7 @@ def deleteDocument():
         {"resource": docId, "action": "delete"}
     )
 
+    accessLogger.logEvent("DELETE_SUCCESS", user["username"], {"docID": docId})
     return jsonify({"success": True, "message": "Document deleted successfully."}), 200
 
 
@@ -863,31 +881,56 @@ def change_password():
     old_password = data.get("oldPassword")
     new_password = data.get("newPassword")
 
-    username = g.user_id  
-
-    with open("data/users.json", "r") as f:
-        users = json.load(f)
-
+    username = g.user_id
+    users = getUsers()
     user = users.get(username)
+
+    # user missing
+    if not user:
+        securityLogger.logEvent(
+            "PASSWORD_CHANGE_FAILED",
+            username,
+            {"reason": "User not found"},
+            "ERROR"
+        )
+        return jsonify({"error": "User not found"}), 404
 
     # verify old password
     if not bcrypt.checkpw(old_password.encode(), user["password_hash"].encode()):
+        securityLogger.logEvent(
+            "PASSWORD_CHANGE_FAILED",
+            username,
+            {"reason": "Incorrect old password"},
+            "WARNING"
+        )
         return jsonify({"error": "Incorrect current password"}), 400
 
-    # validate new password strength 
+    # validate new password
     if not validatePassword(new_password):
+        securityLogger.logEvent(
+            "PASSWORD_CHANGE_FAILED",
+            username,
+            {"reason": "Weak password"},
+            "WARNING"
+        )
         return jsonify({"error": "Password does not meet requirements"}), 400
 
-    # hash new password
+    # hash password
     new_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt(12)).decode()
-
     user["password_hash"] = new_hash
 
-    # save
-    with open("data/users.json", "w") as f:
-        json.dump(users, f, indent=4)
+    
+    saveUsers(users)
 
-    return jsonify({"success": True})
+    # log success
+    securityLogger.logEvent(
+        "PASSWORD_CHANGED",
+        username,
+        {"message": "Password updated successfully"}
+    )
+
+    return jsonify({"success": True, "message": "Password updated successfully"}), 200
+
 
 
 
