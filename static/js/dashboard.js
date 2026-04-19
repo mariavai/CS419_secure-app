@@ -79,7 +79,7 @@ async function loadUsers() {
             row.innerHTML = `
                 <span>${u.username}</span>
                 <span>${u.role}</span>
-                <span>Active</span>
+                <span>${u.status}</span>
             `;
             container.appendChild(row);
         });

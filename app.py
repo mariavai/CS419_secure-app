@@ -21,6 +21,8 @@ from classes import EncryptedStorage, SessionManager, SecurityLogger, DocumentMa
 app = Flask(__name__)
 
 
+
+
 trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
 documentManager = DocumentManager()
 sessionManager = SessionManager()
@@ -68,6 +70,24 @@ def set_security_headers(response):
     return response
 
 
+# log security configuration load 
+securityLogger.logEvent(
+    "SECURITY_CONFIG_LOADED",
+    None,
+    {
+        "headers": [
+            "Content-Security-Policy",
+            "X-Frame-Options",
+            "X-Content-Type-Options",
+            "X-XSS-Protection",
+            "Referrer-Policy",
+            "Permissions-Policy",
+            "Strict-Transport-Security"
+        ]
+    },
+    "INFO"
+)
+
 ## helper 
 def is_allowed_file(filename):
     _, ext = os.path.splitext(filename.lower())
@@ -100,11 +120,15 @@ def rateLimitChecker(ip):
     trackerForIPs[ip].append(currTime)
     return True
 
+
 @app.route('/register', methods=['POST']) ##starts register route and only accepts data sent to server
 def register():
     data = request.get_json() ##turns json request into python dict
     username = data.get('username')
     email = data.get('email')
+    if len(email) > 254:
+        securityLogger.logEvent('INPUT_VALIDATION_FAILURE', None, {'field': 'email', 'reason': 'Too long'}, 'WARNING')
+        return jsonify({'error': 'Email too long'}), 400
     password = data.get('password')
     confirm_password = data.get('confirm_password')
 
@@ -165,6 +189,9 @@ def login():
 
     data = request.get_json()
     username = data.get('username')
+    if len(username) > 20:
+        return jsonify({'error': 'Invalid username'}), 400
+
     password = data.get('password')
 
     users = getUsers()
@@ -192,6 +219,11 @@ def login():
     user['locked_until'] = None
     saveUsers(users)
 
+    #delte old session
+    old_token = request.cookies.get('session_token')
+    if old_token:
+        sessionManager.destroySession(old_token)
+
     token = sessionManager.createSession(user['username'])
     securityLogger.logEvent('SESSION_CREATED', username, {})
     securityLogger.logEvent('LOGIN_SUCCESS', username, {'username': username})
@@ -207,6 +239,8 @@ def login():
         max_age=1800
     )
     return response, 200
+
+
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -399,6 +433,8 @@ def require_https():
         return redirect(secure_url, code=301)
 
 """
+
+
 @app.before_request
 def loadUserSession():
     if request.path.startswith('/static/'): #skip checking for ui files
@@ -430,6 +466,15 @@ def uploadDocument():
 
     # sanitize filename --> prevent path traversal
     fileName = secure_filename(file.filename)
+    if len(fileName) > 100:
+        securityLogger.logEvent(
+            'UPLOAD_BLOCKED',
+            g.user_id,
+            {'reason': 'Filename too long', 'fileName': fileName},
+            'WARNING'
+    )
+    return jsonify({'error': 'Filename too long (max 100 characters)'}), 400
+
 
     # extension whitelist
     ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
@@ -460,6 +505,33 @@ def uploadDocument():
             'WARNING'
         )
         return jsonify({'error': 'Invalid file type (MIME mismatch)'}), 400
+        # simple malware scan placeholder 
+    file.seek(0)
+    file_bytes = file.read()
+
+    #  block files containing script tags
+    if b"<script>" in file_bytes or b"<?php" in file_bytes:
+        securityLogger.logEvent(
+            'UPLOAD_BLOCKED',
+            g.user_id,
+            {'reason': 'Malware signature detected', 'fileName': fileName},
+            'WARNING'
+        )
+        return jsonify({'error': 'File rejected due to unsafe content'}), 400
+
+    #block empty files
+    if len(file_bytes) == 0:
+        securityLogger.logEvent(
+            'UPLOAD_BLOCKED',
+            g.user_id,
+            {'reason': 'Empty file (possible malware)', 'fileName': fileName},
+            'WARNING'
+        )
+        return jsonify({'error': 'Empty files are not allowed'}), 400
+
+    # reset pointer for later encryption
+    file.seek(0)
+
 
     # file size limit
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -567,6 +639,9 @@ def shareDocument():
 
     docId = data.get("docId")
     targetUser = data.get("targetUser")
+    if len(targetUser) > 20:
+        return jsonify({"error": "Target username too long"}), 400
+
     role = data.get("role")  # view or editor
 
     #validate role input
@@ -627,6 +702,9 @@ def unshareDocument():
 
     docId = data.get("docId")
     targetUser = data.get("targetUser")
+    if len(targetUser) > 20:
+        return jsonify({"error": "Target username too long"}), 400
+
 
     # target exists
     users = getUsers()
@@ -679,7 +757,7 @@ def unshareDocument():
 #view audit log for doc
 @app.route('/document/<docId>/audit', methods=['GET'])
 @requireAuthentication
-@requireDocumentPermission("docId", "editor")   # must at least be able to view the document
+@requireDocumentPermission("docId", "owner")   # must at least be able to view the document
 def getDocumentAudit(docId):
     # load metadata
     docMeta = getDocument(docId)
@@ -880,8 +958,11 @@ def deleteDocument():
 
 
 @app.route('/dashboard')
+@requireAuthentication
 def dashboard():
     return render_template('dashboard.html')
+
+
 
 @app.route('/changePassword', methods=['POST'])
 @requireAuthentication
