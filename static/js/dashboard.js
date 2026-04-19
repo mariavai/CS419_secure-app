@@ -69,24 +69,48 @@ async function loadUsers() {
     try {
         const res = await fetch('/findUsersList');
         const users = await res.json();
-        
         const container = document.getElementById('user-container');
         container.innerHTML = '';
-        
+
+        const currentUser = localStorage.getItem("username");
+
         users.forEach(u => {
             const row = document.createElement('div');
             row.className = 'file-row';
+
+            const isAdmin = u.role === "admin";
+            const isUser = u.role === "user";
+            const isGuest = u.role === "guest";
+
+            const disableSelfDowngrade = (u.username === currentUser);
+
             row.innerHTML = `
                 <span>${u.username}</span>
                 <span>${u.role}</span>
                 <span>${u.status}</span>
+                <span>
+                    <button class="small-btn"
+                        onclick="upgradeUser('${u.username}')"
+                        ${isAdmin ? "disabled" : ""}>
+                        Upgrade
+                    </button>
+
+                    <button class="danger-btn small-btn"
+                        onclick="downgradeUser('${u.username}')"
+                        ${(isGuest || disableSelfDowngrade) ? "disabled" : ""}>
+                        Downgrade
+                    </button>
+                </span>
             `;
+
             container.appendChild(row);
         });
+
     } catch (e) {
         console.error("Failed to load users", e);
     }
 }
+
 
 function downloadSelected() {
     if (selectedDocID) {
@@ -345,4 +369,52 @@ async function unshareUser(username) {
         showToast(data.error || "Unshare failed", "error");
     }
 }
+
+async function upgradeUser(username) {
+    console.log("UPGRADE CLICKED:", username); // debug
+
+    // Determine new role based on current role in UI
+    const row = [...document.querySelectorAll('.file-row')]
+        .find(r => r.children[0].innerText === username);
+
+    const currentRole = row.children[1].innerText;
+    let newRole = "user";
+
+    if (currentRole === "user") newRole = "admin";
+    if (currentRole === "guest") newRole = "user";
+
+    const res = await fetch("/upgradeRole", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username, role: newRole })
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+        showToast("User upgraded!", "success");
+        loadUsers();
+    } else {
+        showToast(data.error || "Upgrade failed", "error");
+    }
+}
+
+
+async function downgradeUser(username) {
+    console.log("DOWNGRADE CLICKED:", username); // debug
+
+    const res = await fetch("/downgradeToGuest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username })
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+        showToast("User downgraded!", "success");
+        loadUsers();
+    } else {
+        showToast(data.error || "Downgrade failed", "error");
+    }
+}
+
 

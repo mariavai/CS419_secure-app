@@ -43,6 +43,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         
         if (res.ok) {
             localStorage.setItem('userRole', data.role || 'user'); 
+            localStorage.setItem('username', username);
             window.location.href = '/dashboard';
         } else {
             showToast(data.error || "Invalid credentials", "error");

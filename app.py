@@ -97,7 +97,7 @@ def getUsers():
         return json.load(f) #converts json into python
 def saveUsers(users):
     with open('data/users.json', 'w') as f: #opens as write
-        json.dump(users, f) #python to Json
+        json.dump(users, f, indent=4) #python to Json
 def validateEmail(email):
     return re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email)
 def validateUsername(username): #false if invalid
