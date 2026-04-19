@@ -451,39 +451,30 @@ def loadUserSession():
         g.user_id = None
         
         
-
 @app.route('/upload', methods=['POST'])
 @requireAuthentication
-@requireRole(ROLE_ADMIN, ROLE_USER)   # guests NOT allowed
+@requireRole(ROLE_ADMIN, ROLE_USER)
 def uploadDocument():
-    # check if file exists
     if 'file' not in request.files:
         return jsonify({'error': 'No file found'}), 404
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
-    # sanitize filename --> prevent path traversal
     fileName = secure_filename(file.filename)
+
     if len(fileName) > 100:
         securityLogger.logEvent(
             'UPLOAD_BLOCKED',
             g.user_id,
             {'reason': 'Filename too long', 'fileName': fileName},
             'WARNING'
-    )
-    if len(file.read()) > MAX_FILE_SIZE:
-        return jsonify({"error": "File too large"}), 400
-    file.seek(0)
-
-    return jsonify({'error': 'Filename too long (max 100 characters)'}), 400
-
+        )
+        return jsonify({'error': 'Filename too long (max 100 characters)'}), 400
 
     # extension whitelist
-    ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
     _, ext = os.path.splitext(fileName.lower())
-
     if ext not in ALLOWED_EXTENSIONS:
         securityLogger.logEvent(
             'UPLOAD_BLOCKED',
@@ -500,7 +491,6 @@ def uploadDocument():
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "text/plain"
     }
-
     if file.mimetype not in ALLOWED_MIME_TYPES:
         securityLogger.logEvent(
             'UPLOAD_BLOCKED',
@@ -509,11 +499,11 @@ def uploadDocument():
             'WARNING'
         )
         return jsonify({'error': 'Invalid file type (MIME mismatch)'}), 400
-        # simple malware scan placeholder 
-    file.seek(0)
+
+    # read bytes once for all remaining checks
     file_bytes = file.read()
 
-    #  block files containing script tags
+    # block malware signatures
     if b"<script>" in file_bytes or b"<?php" in file_bytes:
         securityLogger.logEvent(
             'UPLOAD_BLOCKED',
@@ -523,7 +513,7 @@ def uploadDocument():
         )
         return jsonify({'error': 'File rejected due to unsafe content'}), 400
 
-    #block empty files
+    # block empty files
     if len(file_bytes) == 0:
         securityLogger.logEvent(
             'UPLOAD_BLOCKED',
@@ -533,57 +523,40 @@ def uploadDocument():
         )
         return jsonify({'error': 'Empty files are not allowed'}), 400
 
-    # reset pointer for later encryption
-    file.seek(0)
-
-
     # file size limit
-    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-    file.seek(0, os.SEEK_END)
-    size = file.tell()
-    file.seek(0)
-
-    if size > MAX_FILE_SIZE:
+    if len(file_bytes) > MAX_FILE_SIZE:
         securityLogger.logEvent(
             'UPLOAD_BLOCKED',
             g.user_id,
-            {'reason': 'File too large', 'size': size},
+            {'reason': 'File too large', 'size': len(file_bytes)},
             'WARNING'
         )
         return jsonify({'error': 'File too large (max 10MB)'}), 400
 
-    # create unique doc ID
     docID = str(uuid.uuid4())
     role = getCurrUserRole()
-
-    # secure hashed file path
     filePath = documentManager.getSecureFilePath(docID, role)
 
     try:
-        # encrypt file bytes and then upload
-        encrypted_content = encryptedStorage.encryptDataBytes(file.read())
+        encrypted_content = encryptedStorage.encryptDataBytes(file_bytes)
 
         with open(filePath, 'wb') as f:
             f.write(encrypted_content)
 
-        # add metadata + versioning + audit log
         documentManager.createDocumentEntry(docID, g.user_id, fileName)
         documentManager.addVersion(docID, filePath, g.user_id)
         documentManager.logAction(docID, g.user_id, "UPLOAD")
 
-        # security logging
         if role == 'admin':
             securityLogger.logEvent('ADMIN_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
         else:
             securityLogger.logEvent('USER_UPLOAD_SUCCESS', g.user_id, {'docID': docID, 'fileName': fileName})
 
-        # access logging
         accessLogger.logEvent("UPLOAD_SUCCESS", g.user_id, {"docID": docID, "fileName": fileName})
 
         return jsonify({'success': True, 'fileName': fileName}), 200
 
     except Exception as e:
-        # error logging
         if role == 'admin':
             securityLogger.logEvent('ADMIN_UPLOAD_FAILURE', g.user_id, {'error': str(e)}, 'ERROR')
         else:
