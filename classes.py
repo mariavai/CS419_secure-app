@@ -7,6 +7,7 @@ import secrets
 import time
 from cryptography.fernet import Fernet
 import hashlib
+from config import Config
 
 
 class EncryptedStorage:
@@ -209,7 +210,7 @@ class DocumentManager:
         self.metadataFile = metadataFile
         self.USER_FOLDER_PATH = USER_FOLDER_PATH
         self.ADMIN_FOLDER_PATH = ADMIN_FOLDER_PATH
-        self.FILE_PATH_PEPPER = "PEPPERsecure284920370472375"
+        self.FILE_PATH_PEPPER = Config.FILE_PATH_PEPPER
 
         # ensure all relevant data dirs exists
         if not os.path.exists('data'):

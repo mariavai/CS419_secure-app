@@ -2,6 +2,7 @@ import os
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-change-in-prod')
+    FILE_PATH_PEPPER = "PEPPERsecure284920370472375"
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
     ALLOWED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.txt'}
     ALLOWED_MIME_TYPES = {

@@ -3,6 +3,7 @@ __pycache__
 data/files/
 data/*.json
 logs/*.log
+config.py
 
 # TLS certificates
 cert.pem
