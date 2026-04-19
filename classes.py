@@ -165,43 +165,6 @@ class SecurityLogger:
         else:
             self.logger.info(json.dumps(log_entry))
 
-class AccessLogger:
-    def __init__(self, log_file='logs/access.log'):
-        if not os.path.exists('logs'):
-            os.makedirs('logs')
-
-        if not os.path.exists(log_file):
-            with open(log_file, 'w') as f:
-                json.dump({}, f)
-
-        self.logger = logging.getLogger('access')
-        self.logger.setLevel(logging.INFO)
-
-        handler = logging.FileHandler(log_file)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-
-        if not self.logger.handlers:
-            self.logger.addHandler(handler)
-
-    def logEvent(self, event_type, user_id, details):
-        ip = None
-        userAgent = None
-        if has_request_context():
-            ip = request.remote_addr
-            userAgent = request.headers.get('User-Agent')
-
-        log_entry = {
-            'timestamp': datetime.utcnow().isoformat(),
-            'event_type': event_type,
-            'user_id': user_id,
-            'ip_address': ip,
-            'user_agent': userAgent,
-            'details': details
-        }
-
-        self.logger.info(json.dumps(log_entry))
-
 
 class DocumentManager:
     

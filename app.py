@@ -248,9 +248,9 @@ def logout():
     if token:
         sessionManager.destroySession(token)
         securityLogger.logEvent('SESSION_DESTROYED', g.user_id, {})
-    response = jsonify({'success': True, 'message': 'Successful logout!'}), 200
+    response = jsonify({'success': True, 'message': 'Successful logout!'})
     response.set_cookie('session_token', '', expires=0, httponly=True, samesite='Strict')
-    return response
+    return response, 200
 
 
 def getCurrUser():  #stores current user id in global var g
@@ -473,6 +473,10 @@ def uploadDocument():
             {'reason': 'Filename too long', 'fileName': fileName},
             'WARNING'
     )
+    if len(file.read()) > MAX_FILE_SIZE:
+        return jsonify({"error": "File too large"}), 400
+    file.seek(0)
+
     return jsonify({'error': 'Filename too long (max 100 characters)'}), 400
 
 
@@ -757,7 +761,7 @@ def unshareDocument():
 #view audit log for doc
 @app.route('/document/<docId>/audit', methods=['GET'])
 @requireAuthentication
-@requireDocumentPermission("docId", "owner")   # must at least be able to view the document
+@requireDocumentPermission("docId", "viewer")   # must at least be able to view the document
 def getDocumentAudit(docId):
     # load metadata
     docMeta = getDocument(docId)
