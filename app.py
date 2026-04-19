@@ -234,7 +234,7 @@ def login():
         'session_token',
         token,
         httponly=True,
-        secure=False, ##not using https
+        secure=True, #using https
         samesite='Strict',
         max_age=1800
     )
@@ -420,7 +420,7 @@ def requireDocumentPermission(docArgName, requiredRole):
 
 
 # http --> https
-"""
+
 @app.before_request
 def require_https():
     # skip HTTPS enforcement for static files
@@ -428,11 +428,12 @@ def require_https():
         return
 
     #only enforce HTTPS outside development
-    if app.env != "development" and not request.is_secure:
+    #if app.env != "development" and not request.is_secure:     #old flask uses env
+    if not app.debug and not request.is_secure:
         secure_url = request.url.replace("http://", "https://", 1)
         return redirect(secure_url, code=301)
 
-"""
+
 
 
 @app.before_request
@@ -1005,8 +1006,8 @@ if __name__ == '__main__':
     #generate cert.pem/key.pem as in the spec:
     # openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
     app.run(
-        #ssl_context=('cert.pem', 'key.pem'),
+        ssl_context=('cert.pem', 'key.pem'),
         host='0.0.0.0',
-        port=5000,
+        port=5001,
         debug=False
     )
