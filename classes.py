@@ -45,7 +45,8 @@ class EncryptedStorage:
     
 
 class SessionManager:
-    def __init__(self, timeout=1800, sessions_file='data/sessions.json', users_file='data/users.json'): #30 minutes
+    def __init__(self, securityLogger, timeout=1800, sessions_file='data/sessions.json', users_file='data/users.json'): #30 minutes
+        self.securityLogger = securityLogger
         self.timeout = timeout
         self.sessions_file = sessions_file
         self.users_file = users_file
@@ -92,7 +93,33 @@ class SessionManager:
         if time.time() - session['last_activity'] > self.timeout:
             self.destroySession(token)
             return None
-            
+        
+        # IP binding check
+        if session.get("ip_address") and session["ip_address"] != request.remote_addr:
+            self.securityLogger.logEvent(
+                "SESSION_HIJACK_ATTEMPT",
+                session["user_id"],
+                {
+                    "expected_ip": session["ip_address"],
+                    "actual_ip": request.remote_addr
+                },
+                "WARNING"
+            )
+            return None
+
+        # User-Agent binding check
+        if session.get("user_agent") and session["user_agent"] != request.headers.get("User-Agent"):
+            self.securityLogger.logEvent(
+                "SESSION_HIJACK_ATTEMPT",
+                session["user_id"],
+                {
+                    "expected_ua": session["user_agent"],
+                    "actual_ua": request.headers.get("User-Agent")
+                },
+                "WARNING"
+            )
+            return None
+
         #update last activity
         session['last_activity'] = time.time()
         sessions[token] = session

@@ -24,8 +24,8 @@ http_app = Flask(__name__)
 
 trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
 documentManager = DocumentManager()
-sessionManager = SessionManager()
 securityLogger = SecurityLogger()
+sessionManager = SessionManager(securityLogger)
 accessLogger = AccessLogger()
 encryptedStorage = EncryptedStorage()
 
