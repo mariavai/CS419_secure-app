@@ -4,6 +4,8 @@ data/files/
 data/*.json
 logs/*.log
 config.py
+.DS_Store
+cookies*.txt
 
 # TLS certificates
 cert.pem
