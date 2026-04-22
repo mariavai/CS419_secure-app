@@ -35,19 +35,23 @@ cd <project-folder>
 ```bash
 openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
 ```
+### 3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
 
-### 3. Run the application
+### 4. Run the application
 ```bash
 python app.py
 ```
 
-### 4. Open application in browser
+### 5. Open application in browser
 ```bash
 HTTP: http://localhost:5000
 HTTPS: https://localhost:5001
 ```
 
-### 5. Login with ADMIN account
+### 6. Login with ADMIN account
 ```bash
 Username: admin
 Password: Asdfghjkl12#
