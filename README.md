@@ -47,3 +47,8 @@ HTTP: http://localhost:5000
 HTTPS: https://localhost:5001
 ```
 
+###5. Login with ADMIN account
+```bash
+Username: admin
+Password: Asdfghjkl12#
+```
