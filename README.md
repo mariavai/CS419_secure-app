@@ -47,8 +47,10 @@ HTTP: http://localhost:5000
 HTTPS: https://localhost:5001
 ```
 
-###5. Login with ADMIN account
+### 5. Login with ADMIN account
 ```bash
 Username: admin
 Password: Asdfghjkl12#
+
+*note: You cannot upgrade/downgrade the account you are signed into. Please create an additional account to test upgrade/downgrade
 ```
