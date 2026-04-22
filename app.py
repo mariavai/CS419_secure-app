@@ -15,12 +15,11 @@ import uuid
 import io
 from werkzeug.utils import secure_filename
 import hashlib
+import threading
 from classes import EncryptedStorage, SessionManager, SecurityLogger, DocumentManager, AccessLogger
 
-
 app = Flask(__name__)
-
-
+http_app = Flask(__name__)
 
 
 trackerForIPs = {} #dictionary with IP as key and value as list of timestamps
@@ -420,19 +419,14 @@ def requireDocumentPermission(docArgName, requiredRole):
 
 
 # http --> https
-
-@app.before_request
+@http_app.before_request
 def require_https():
-    # skip HTTPS enforcement for static files
-    if request.path.startswith('/static/'):
-        return
-
     #only enforce HTTPS outside development
     #if app.env != "development" and not request.is_secure:     #old flask uses env
     if not app.debug and not request.is_secure:
-        secure_url = request.url.replace("http://", "https://", 1)
-        return redirect(secure_url, code=301)
-
+        https_url = request.url.replace("http://", "https://", 1)
+        https_url = https_url.replace(":5000", ":5001")
+        return redirect(https_url, code=301)
 
 
 
@@ -450,7 +444,15 @@ def loadUserSession():
             securityLogger.logEvent('SUSPICIOUS_ACTIVITY', None, {'reason': 'Invalid or expired session token'}, 'WARNING')
     else:
         g.user_id = None
-        
+
+def validBytes(file_bytes, ext):
+    signatures = {
+        '.pdf': file_bytes.startswith(b'%PDF'),
+        '.doc': file_bytes.startswith(b'\xd0\xcf\x11\xe0'),
+        '.docx': file_bytes.startswith(b'PK'),  #zip format
+        '.txt': True
+    }
+    return signatures.get(ext, False)
         
 @app.route('/upload', methods=['POST'])
 @requireAuthentication
@@ -503,6 +505,15 @@ def uploadDocument():
 
     # read bytes once for all remaining checks
     file_bytes = file.read()
+    
+    if not validBytes(file_bytes, ext):
+        securityLogger.logEvent(
+            'UPLOAD_BLOCKED',
+            g.user_id,
+            {'reason': 'Invalid file signature (magic bytes mismatch)', 'fileName': fileName},
+            'WARNING'
+        )
+        return jsonify({'error': 'File content does not match its type'}), 400
 
     # block malware signatures
     if b"<script>" in file_bytes or b"<?php" in file_bytes:
@@ -1001,13 +1012,26 @@ def change_password():
 
 
 
-
 if __name__ == '__main__':
     #generate cert.pem/key.pem as in the spec:
     # openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
-    app.run(
-        ssl_context=('cert.pem', 'key.pem'),
-        host='0.0.0.0',
-        port=5001,
-        debug=False
-    )
+    def run_https():
+        app.run(
+            ssl_context=('cert.pem', 'key.pem'),
+            host='0.0.0.0',
+            port=5001,
+            debug=False
+        )
+
+    def run_http():
+        http_app.run(
+            host='0.0.0.0',
+            port=5000,
+            debug=False
+        )
+
+    threading.Thread(target=run_https).start()
+    threading.Thread(target=run_http).start()
+
+
+    
